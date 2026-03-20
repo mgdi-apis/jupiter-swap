@@ -1,20 +1,20 @@
 package de.mgdi.jupiter.swap.client;
 
-import de.mgdi.jupiter.swap.model.JupiterQuoteRequest;
-import de.mgdi.jupiter.swap.model.JupiterQuoteResponse;
-import de.mgdi.jupiter.swap.model.JupiterSwapRequest;
-import de.mgdi.jupiter.swap.model.JupiterSwapResponse;
+import de.mgdi.jupiter.swap.model.JupiterExecuteRequest;
+import de.mgdi.jupiter.swap.model.JupiterExecuteResponse;
+import de.mgdi.jupiter.swap.model.JupiterOrderRequest;
+import de.mgdi.jupiter.swap.model.JupiterOrderResponse;
 
 /**
- * Abstraction over the Jupiter Aggregator REST API.
- * Provides methods for fetching swap quotes and submitting swap transactions.
+ * Abstraction over the Jupiter Aggregator v2 REST API.
+ * Provides methods for ordering a swap transaction and executing it via Jupiter.
  *
  * @author mgdi consulting
- * @since 2026-03-06
+ * @since 2026-03-20
  */
 public interface JupiterClient {
 
-    JupiterQuoteResponse quote(JupiterQuoteRequest request);
+    JupiterOrderResponse order(JupiterOrderRequest request);
 
-    JupiterSwapResponse swap(JupiterSwapRequest request);
+    JupiterExecuteResponse execute(JupiterExecuteRequest request);
 }

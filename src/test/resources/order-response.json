@@ -1,0 +1,9 @@
+{
+  "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAHCw==",
+  "requestId": "abc123-request-id",
+  "outAmount": "172450000",
+  "router": "iris",
+  "mode": "ultra",
+  "feeBps": 10,
+  "feeMint": "So11111111111111111111111111111111111111112"
+}
