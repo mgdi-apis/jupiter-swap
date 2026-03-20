@@ -2,10 +2,10 @@ package de.mgdi.jupiter.swap.client;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
-import de.mgdi.jupiter.swap.model.JupiterQuoteRequest;
-import de.mgdi.jupiter.swap.model.JupiterQuoteResponse;
-import de.mgdi.jupiter.swap.model.JupiterSwapRequest;
-import de.mgdi.jupiter.swap.model.JupiterSwapResponse;
+import de.mgdi.jupiter.swap.model.JupiterExecuteRequest;
+import de.mgdi.jupiter.swap.model.JupiterExecuteResponse;
+import de.mgdi.jupiter.swap.model.JupiterOrderRequest;
+import de.mgdi.jupiter.swap.model.JupiterOrderResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -34,17 +34,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for {@link JupiterHttpClient} using WireMock to simulate the Jupiter REST API.
+ * Integration tests for {@link JupiterHttpClient} using WireMock to simulate the Jupiter v2 REST API.
  *
  * @author mgdi consulting
- * @since 2026-03-06
+ * @since 2026-03-20
  */
 @WireMockTest
 class JupiterHttpClientTest {
 
-    private static final String SOL_MINT  = "So11111111111111111111111111111111111111112";
-    private static final String USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-    private static final String API_KEY   = "test-api-key";
+    private static final String SOL_MINT   = "So11111111111111111111111111111111111111112";
+    private static final String USDC_MINT  = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    private static final String TAKER      = "UserPubKey1111111111111111111111111111111111";
+    private static final String API_KEY    = "test-api-key";
+    private static final String REQUEST_ID = "abc123-request-id";
 
     private JupiterHttpClient client;
 
@@ -57,171 +59,171 @@ class JupiterHttpClientTest {
                 .build();
     }
 
+    // -------------------------------------------------------------------------
+    // order
+    // -------------------------------------------------------------------------
+
     @Test
-    void testQuoteSuccessReturnsDeserializedResponse() throws Exception {
-        stubFor(get(urlPathEqualTo("/swap/v1/quote"))
-                .willReturn(okJson(readResource("quote-response.json"))));
+    void testOrderSuccessReturnsDeserializedResponse() throws Exception {
+        stubFor(get(urlPathEqualTo("/swap/v2/order"))
+                .willReturn(okJson(readResource("order-response.json"))));
 
-        JupiterQuoteRequest request = quoteRequest(1_000_000_000L, 50);
-        JupiterQuoteResponse response = client.quote(request);
+        JupiterOrderResponse response = client.order(orderRequest(1_000_000_000L));
 
-        assertEquals(SOL_MINT, response.getInputMint());
-        assertEquals(USDC_MINT, response.getOutputMint());
-        assertEquals("1000000000", response.getInAmount());
+        assertEquals("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAHCw==",
+                response.getTransaction());
+        assertEquals(REQUEST_ID, response.getRequestId());
         assertEquals("172450000", response.getOutAmount());
-        assertEquals(50, response.getSlippageBps());
-        assertEquals(1, response.getRoutePlan().length);
-        assertEquals("Raydium", response.getRoutePlan()[0].getSwapInfo().getLabel());
+        assertEquals("iris", response.getRouter());
     }
 
     @Test
-    void testQuoteSendsApiKeyHeader() throws Exception {
-        stubFor(get(urlPathEqualTo("/swap/v1/quote"))
-                .willReturn(okJson(readResource("quote-response.json"))));
+    void testOrderSendsApiKeyHeader() throws Exception {
+        stubFor(get(urlPathEqualTo("/swap/v2/order"))
+                .willReturn(okJson(readResource("order-response.json"))));
 
-        client.quote(quoteRequest(1_000_000_000L, 50));
+        client.order(orderRequest(1_000_000_000L));
 
-        verify(getRequestedFor(urlPathEqualTo("/swap/v1/quote"))
+        verify(getRequestedFor(urlPathEqualTo("/swap/v2/order"))
                 .withHeader("x-api-key", equalTo(API_KEY))
                 .withHeader("Accept", equalTo("application/json")));
     }
 
     @Test
-    void testQuoteSendsCorrectQueryParameters() throws Exception {
-        stubFor(get(urlPathEqualTo("/swap/v1/quote"))
-                .willReturn(okJson(readResource("quote-response.json"))));
+    void testOrderSendsCorrectQueryParameters() throws Exception {
+        stubFor(get(urlPathEqualTo("/swap/v2/order"))
+                .willReturn(okJson(readResource("order-response.json"))));
 
-        client.quote(quoteRequest(1_000_000_000L, 50));
+        client.order(orderRequest(1_000_000_000L));
 
-        verify(getRequestedFor(urlPathEqualTo("/swap/v1/quote"))
-                .withQueryParam("inputMint",   equalTo(SOL_MINT))
-                .withQueryParam("outputMint",  equalTo(USDC_MINT))
-                .withQueryParam("amount",      equalTo("1000000000"))
-                .withQueryParam("slippageBps", equalTo("50")));
+        verify(getRequestedFor(urlPathEqualTo("/swap/v2/order"))
+                .withQueryParam("inputMint",  equalTo(SOL_MINT))
+                .withQueryParam("outputMint", equalTo(USDC_MINT))
+                .withQueryParam("amount",     equalTo("1000000000"))
+                .withQueryParam("taker",      equalTo(TAKER)));
     }
 
     @Test
-    void testQuoteHttpError400ThrowsRuntimeException() {
-        stubFor(get(urlPathEqualTo("/swap/v1/quote"))
+    void testOrderHttpError400ThrowsRuntimeException() {
+        stubFor(get(urlPathEqualTo("/swap/v2/order"))
                 .willReturn(badRequest().withBody("invalid params")));
 
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> client.quote(quoteRequest(1_000_000_000L, 50)));
+                () -> client.order(orderRequest(1_000_000_000L)));
 
         assertTrue(ex.getMessage().contains("400"));
     }
 
     @Test
-    void testQuoteHttpError500ThrowsRuntimeException() {
-        stubFor(get(urlPathEqualTo("/swap/v1/quote"))
+    void testOrderHttpError500ThrowsRuntimeException() {
+        stubFor(get(urlPathEqualTo("/swap/v2/order"))
                 .willReturn(serverError().withBody("internal error")));
 
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> client.quote(quoteRequest(1_000_000_000L, 50)));
+                () -> client.order(orderRequest(1_000_000_000L)));
 
         assertTrue(ex.getMessage().contains("500"));
     }
 
     @Test
-    void testQuoteTimeoutThrowsRuntimeException() {
-        stubFor(get(urlPathEqualTo("/swap/v1/quote"))
+    void testOrderTimeoutThrowsRuntimeException() {
+        stubFor(get(urlPathEqualTo("/swap/v2/order"))
                 .willReturn(okJson("{}").withFixedDelay(10_000)));
 
-        assertThrows(RuntimeException.class,
-                () -> client.quote(quoteRequest(1_000_000_000L, 50)));
+        assertThrows(RuntimeException.class, () -> client.order(orderRequest(1_000_000_000L)));
+    }
+
+    // -------------------------------------------------------------------------
+    // execute
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testExecuteSuccessReturnsDeserializedResponse() throws Exception {
+        stubFor(post(urlEqualTo("/swap/v2/execute"))
+                .willReturn(okJson(readResource("execute-response.json"))));
+
+        JupiterExecuteResponse response = client.execute(executeRequest());
+
+        assertEquals("Success", response.getStatus());
+        assertEquals("5KtPn3DXXzHkb7VAVHZGwXJQg8HvFqPR5R6EFgFHMXaT2sLmKZJoNRzJvFwMdBf9dHkQB1yJXjVNnPpQfsTBYhz",
+                response.getSignature());
+        assertEquals(0, response.getCode());
+        assertEquals("1000000000", response.getInputAmountResult());
+        assertEquals("172450000", response.getOutputAmountResult());
     }
 
     @Test
-    void testSwapSuccessReturnsDeserializedResponse() throws Exception {
-        stubFor(post(urlEqualTo("/swap/v1/swap"))
-                .willReturn(okJson(readResource("swap-response.json"))));
+    void testExecuteSendsCorrectHeaders() throws Exception {
+        stubFor(post(urlEqualTo("/swap/v2/execute"))
+                .willReturn(okJson(readResource("execute-response.json"))));
 
-        JupiterSwapResponse response = client.swap(swapRequest());
+        client.execute(executeRequest());
 
-        assertEquals("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAHCw==",
-                response.getSwapTransaction());
-        assertEquals(287654321L, response.getLastValidBlockHeight().longValue());
-        assertEquals(5000L, response.getPrioritizationFeeLamports().longValue());
+        verify(postRequestedFor(urlEqualTo("/swap/v2/execute"))
+                .withHeader("x-api-key",    equalTo(API_KEY))
+                .withHeader("Content-Type", containing("application/json"))
+                .withHeader("Accept",       equalTo("application/json")));
     }
 
     @Test
-    void testSwapSendsCorrectHeaders() throws Exception {
-        stubFor(post(urlEqualTo("/swap/v1/swap"))
-                .willReturn(okJson(readResource("swap-response.json"))));
+    void testExecuteSendsSignedTransactionAndRequestIdInBody() throws Exception {
+        stubFor(post(urlEqualTo("/swap/v2/execute"))
+                .willReturn(okJson(readResource("execute-response.json"))));
 
-        client.swap(swapRequest());
+        client.execute(executeRequest());
 
-        verify(postRequestedFor(urlEqualTo("/swap/v1/swap"))
-                .withHeader("x-api-key",     equalTo(API_KEY))
-                .withHeader("Content-Type",  containing("application/json"))
-                .withHeader("Accept",        equalTo("application/json")));
+        verify(postRequestedFor(urlEqualTo("/swap/v2/execute"))
+                .withRequestBody(matchingJsonPath("$.signedTransaction"))
+                .withRequestBody(matchingJsonPath("$.requestId", equalTo(REQUEST_ID))));
     }
 
     @Test
-    void testSwapSendsQuoteResponseInBody() throws Exception {
-        stubFor(post(urlEqualTo("/swap/v1/swap"))
-                .willReturn(okJson(readResource("swap-response.json"))));
-
-        client.swap(swapRequest());
-
-        verify(postRequestedFor(urlEqualTo("/swap/v1/swap"))
-                .withRequestBody(matchingJsonPath("$.quoteResponse.inputMint",  equalTo(SOL_MINT)))
-                .withRequestBody(matchingJsonPath("$.quoteResponse.outputMint", equalTo(USDC_MINT)))
-                .withRequestBody(matchingJsonPath("$.userPublicKey"))
-                .withRequestBody(matchingJsonPath("$.wrapAndUnwrapSol",         equalTo("true")))
-                .withRequestBody(matchingJsonPath("$.dynamicComputeUnitLimit",  equalTo("true")))
-                .withRequestBody(matchingJsonPath("$.prioritizationFeeLamports",equalTo("auto"))));
-    }
-
-    @Test
-    void testSwapHttpError400ThrowsRuntimeException() {
-        stubFor(post(urlEqualTo("/swap/v1/swap"))
+    void testExecuteHttpError400ThrowsRuntimeException() {
+        stubFor(post(urlEqualTo("/swap/v2/execute"))
                 .willReturn(badRequest().withBody("bad request")));
 
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> client.swap(swapRequest()));
+                () -> client.execute(executeRequest()));
 
         assertTrue(ex.getMessage().contains("400"));
     }
 
     @Test
-    void testSwapHttpError500ThrowsRuntimeException() {
-        stubFor(post(urlEqualTo("/swap/v1/swap"))
+    void testExecuteHttpError500ThrowsRuntimeException() {
+        stubFor(post(urlEqualTo("/swap/v2/execute"))
                 .willReturn(serverError().withBody("server error")));
 
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> client.swap(swapRequest()));
+                () -> client.execute(executeRequest()));
 
         assertTrue(ex.getMessage().contains("500"));
     }
 
     @Test
-    void testSwapTimeoutThrowsRuntimeException() {
-        stubFor(post(urlEqualTo("/swap/v1/swap"))
+    void testExecuteTimeoutThrowsRuntimeException() {
+        stubFor(post(urlEqualTo("/swap/v2/execute"))
                 .willReturn(okJson("{}").withFixedDelay(10_000)));
 
-        assertThrows(RuntimeException.class, () -> client.swap(swapRequest()));
+        assertThrows(RuntimeException.class, () -> client.execute(executeRequest()));
     }
 
-    private JupiterQuoteRequest quoteRequest(long amount, int slippageBps) {
-        return JupiterQuoteRequest.builder()
+    // -------------------------------------------------------------------------
+    // helpers
+    // -------------------------------------------------------------------------
+
+    private JupiterOrderRequest orderRequest(long amount) {
+        return JupiterOrderRequest.builder()
                 .inputMint(SOL_MINT)
                 .outputMint(USDC_MINT)
                 .amount(amount)
-                .slippageBps(slippageBps)
+                .taker(TAKER)
                 .build();
     }
 
-    private JupiterSwapRequest swapRequest() {
-        JupiterQuoteResponse quote = new JupiterQuoteResponse();
-        quote.setInputMint(SOL_MINT);
-        quote.setOutputMint(USDC_MINT);
-        quote.setInAmount("1000000000");
-        quote.setOutAmount("172450000");
-
-        return JupiterSwapRequest.builder()
-                .quoteResponse(quote)
-                .userPublicKey("UserPubKey1111111111111111111111111111111111")
+    private JupiterExecuteRequest executeRequest() {
+        return JupiterExecuteRequest.builder()
+                .signedTransaction("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAHCw==")
+                .requestId(REQUEST_ID)
                 .build();
     }
 

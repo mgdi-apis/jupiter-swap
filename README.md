@@ -2,7 +2,7 @@
 
 Java library for executing token swaps on the [Jupiter Aggregator](https://jup.ag) on Solana.
 
-Handles the full swap lifecycle: fetching a quote, signing the transaction, submitting it to the RPC node with retry, and optionally polling for confirmation.
+Handles the full swap lifecycle using the **Jupiter v2 API**: ordering a transaction, signing it locally, and submitting it via Jupiter's execute endpoint — Jupiter handles transaction landing internally.
 
 ---
 
@@ -11,8 +11,7 @@ Handles the full swap lifecycle: fetching a quote, signing the transaction, subm
 - Java 21+
 - Maven
 - A Solana wallet (private key as Base58)
-- A Jupiter API key ([lite-api.jup.ag](https://lite-api.jup.ag) or your own endpoint)
-- A Solana RPC endpoint
+- A Jupiter API key ([api.jup.ag](https://api.jup.ag))
 
 ---
 
@@ -30,7 +29,7 @@ Then add it as a local dependency:
 <dependency>
     <groupId>de.mgdi</groupId>
     <artifactId>jupiter-swap</artifactId>
-    <version>0.9.0</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -40,11 +39,11 @@ SLF4J is used for logging (`slf4j-api` is a transitive dependency). Add a loggin
 
 ## How it works
 
-1. **Quote** — fetches the best route from Jupiter for the given token pair and amount
-2. **Swap** — submits the quote to Jupiter which returns a pre-built, partially signed versioned transaction
-3. **Sign** — the transaction is signed locally with the wallet's private key
-4. **Send** — the signed transaction is submitted to the Solana RPC node, with configurable retry on failure
-5. **Await** *(optional)* — polls the RPC node until the transaction is confirmed or the timeout is reached
+1. **Order** — calls `GET /swap/v2/order` with the token pair, amount, taker wallet address, and optional config parameters; Jupiter returns an unsigned versioned transaction and a `requestId`
+2. **Sign** — the transaction is signed locally with the wallet's private key
+3. **Execute** — calls `POST /swap/v2/execute` with the signed transaction and `requestId`; Jupiter routes, lands the transaction, and returns the **final status and signature directly**
+
+No RPC client, no polling — Jupiter v2 blocks until the transaction is confirmed and returns the result.
 
 ---
 
@@ -52,44 +51,36 @@ SLF4J is used for logging (`slf4j-api` is a transitive dependency). Add a loggin
 
 ### Plain Java
 
-#### Fire and forget — returns transaction hash immediately
+#### Fire and forget — returns transaction signature
 
 ```java
 JupiterSwap jupiterSwap = JupiterSwap.builder()
         .account(new Account(Base58.decode(privateKey)))
-        .rpcClient(new RpcClient(Cluster.MAINNET))
         .jupiterClient(
                 JupiterHttpClient.builder()
-                        .jupiterBaseUrl("https://lite-api.jup.ag")
+                        .jupiterBaseUrl("https://api.jup.ag")
                         .jupiterApiKey("your-api-key")
                         .build()
         )
         .build();
 
-String txHash = jupiterSwap.swap(SOL_MINT, USDC_MINT, 1_000_000_000L);
+String signature = jupiterSwap.swap(SOL_MINT, USDC_MINT, 1_000_000_000L);
 ```
 
-#### Wait for confirmation
+#### Check if the swap succeeded
 
 ```java
 boolean confirmed = jupiterSwap.swapAndAwait(SOL_MINT, USDC_MINT, 1_000_000_000L);
 ```
 
-#### Poll an already submitted transaction
-
-```java
-boolean confirmed = jupiterSwap.awaitTransaction(txHash);
-```
-
-#### Custom configuration
+#### Custom swap configuration
 
 ```java
 JupiterSwap jupiterSwap = JupiterSwap.builder()
         .account(new Account(Base58.decode(privateKey)))
-        .rpcClient(new RpcClient(Cluster.MAINNET))
         .jupiterClient(
                 JupiterHttpClient.builder()
-                        .jupiterBaseUrl("https://lite-api.jup.ag")
+                        .jupiterBaseUrl("https://api.jup.ag")
                         .jupiterApiKey("your-api-key")
                         .connectTimeout(Duration.ofSeconds(5))
                         .requestTimeout(Duration.ofSeconds(15))
@@ -97,15 +88,33 @@ JupiterSwap jupiterSwap = JupiterSwap.builder()
         )
         .config(
                 JupiterSwapConfig.builder()
-                        .sendRetryCount(3)
-                        .sendRetryTimeoutMs(30_000)   // 3 attempts over 30s → 10s between retries
-                        .statusCheckCount(10)
-                        .statusCheckTimeoutMs(60_000) // 10 polls over 60s → every 6s
-                        .slippageBps(50)              // 0.5% max slippage
+                        .slippageBps(100)
+                        .priorityFee(10_000)
+                        .onlyDirectRoutes(false)
                         .build()
         )
         .build();
 ```
+
+---
+
+## Configuration — JupiterSwapConfig
+
+All parameters in `JupiterSwapConfig` are optional and passed directly to the Jupiter `/order` endpoint. When `null`, Jupiter uses its own defaults.
+
+Use `JupiterSwapConfig.defaultConfig()` for a sensible starting point (`slippageBps=50`), or build your own with the builder.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `slippageBps` | `Integer` | `50` | Maximum accepted slippage in basis points (1 bps = 0.01%). Example: `50` = 0.5%. If `null`, Jupiter determines slippage dynamically. |
+| `priorityFee` | `Integer` | `null` | Priority fee in lamports added to the transaction to increase landing speed. Higher values compete better during network congestion. |
+| `computeUnitPrice` | `Integer` | `null` | Price per compute unit in micro-lamports. Alternative to `priorityFee` for fine-grained fee control. |
+| `onlyDirectRoutes` | `boolean` | `false` | If `true`, only direct token pair routes are used — no multi-hop routing through intermediate tokens. Simpler but may give worse prices. |
+| `maxAccounts` | `Integer` | `null` | Maximum number of accounts in the swap route (range: 1–64, Jupiter default: 64). Lower values free up space for custom instructions in the same transaction. |
+| `excludeDexes` | `List<String>` | `null` | List of DEX names to exclude from routing, e.g. `["Raydium", "Orca"]`. |
+| `excludeRouters` | `List<String>` | `null` | List of Jupiter routers to exclude. Possible values: `"Metis"`, `"JupiterZ"`, `"Dflow"`, `"OKX"`. Excluding routers reduces liquidity competition and may result in worse prices. |
+
+> **Note on routing restrictions:** Parameters like `excludeRouters`, `excludeDexes`, and `onlyDirectRoutes` restrict which paths Jupiter can use. This may improve predictability but reduces the chance of getting the best price.
 
 ---
 
@@ -130,13 +139,13 @@ public class JupiterSwapConfig {
     public JupiterSwap jupiterSwap() {
         return JupiterSwap.builder()
                 .account(new Account(Base58.decode(privateKey)))
-                .rpcClient(new RpcClient(Cluster.MAINNET))
                 .jupiterClient(
                         JupiterHttpClient.builder()
                                 .jupiterBaseUrl(baseUrl)
                                 .jupiterApiKey(apiKey)
                                 .build()
                 )
+                .config(de.mgdi.jupiter.swap.config.JupiterSwapConfig.defaultConfig())
                 .build();
     }
 }
@@ -144,7 +153,7 @@ public class JupiterSwapConfig {
 
 `application.properties`:
 ```properties
-jupiter.base-url=https://lite-api.jup.ag
+jupiter.base-url=https://api.jup.ag
 jupiter.api-key=your-api-key
 solana.private-key=your-base58-private-key
 ```
@@ -198,13 +207,13 @@ public class JupiterSwapProducer {
     public JupiterSwap jupiterSwap() {
         return JupiterSwap.builder()
                 .account(new Account(Base58.decode(privateKey)))
-                .rpcClient(new RpcClient(Cluster.MAINNET))
                 .jupiterClient(
                         JupiterHttpClient.builder()
                                 .jupiterBaseUrl(baseUrl)
                                 .jupiterApiKey(apiKey)
                                 .build()
                 )
+                .config(JupiterSwapConfig.defaultConfig())
                 .build();
     }
 }
@@ -212,7 +221,7 @@ public class JupiterSwapProducer {
 
 `application.properties`:
 ```properties
-jupiter.base-url=https://lite-api.jup.ag
+jupiter.base-url=https://api.jup.ag
 jupiter.api-key=your-api-key
 solana.private-key=your-base58-private-key
 ```
@@ -238,10 +247,10 @@ Quarkus includes JBoss Logging bridged to SLF4J by default — no additional log
 ## Common token mint addresses
 
 | Token | Mint address |
-|-------|-------------|
-| SOL   | `So11111111111111111111111111111111111111112` |
-| USDC  | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
-| USDT  | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` |
+|---|---|
+| SOL  | `So11111111111111111111111111111111111111112` |
+| USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
+| USDT | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` |
 
 ---
 

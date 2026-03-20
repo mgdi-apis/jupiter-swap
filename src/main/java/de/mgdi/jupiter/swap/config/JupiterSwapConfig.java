@@ -3,57 +3,65 @@ package de.mgdi.jupiter.swap.config;
 import lombok.Builder;
 import lombok.Value;
 
+import java.util.List;
+
 /**
  * Immutable configuration for {@link de.mgdi.jupiter.swap.JupiterSwap}.
- * Controls retry behaviour, status polling, and swap slippage tolerance.
+ * All fields are passed as optional query parameters to the Jupiter v2 /order endpoint.
+ * Null values are omitted from the request — Jupiter uses its own defaults.
  * Use {@link #defaultConfig()} for sensible defaults or the builder for custom values.
  *
  * @author mgdi consulting
- * @since 2026-03-06
+ * @since 2026-03-20
  */
 @Value
 @Builder
 public class JupiterSwapConfig {
 
     /**
-     * Number of attempts to send the transaction via RPC before giving up.
-     * Retries can help compensate for transient network issues or RPC node instability.
+     * Slippage tolerance in basis points (1 bps = 0.01%).
+     * Example: 50 = max 0.5% slippage. If null, Jupiter determines slippage dynamically.
      */
-    int sendRetryCount;
+    Integer slippageBps;
 
     /**
-     * Total time budget in milliseconds across all send attempts.
-     * The interval between retries is derived as {@code sendRetryTimeoutMs / sendRetryCount}.
-     * For example, 3 retries over 30 000 ms results in a 10-second pause between attempts.
+     * Priority fee in lamports to speed up transaction landing.
+     * If null, Jupiter uses its default priority fee.
      */
-    int sendRetryTimeoutMs;
+    Integer priorityFee;
 
     /**
-     * Maximum number of times to poll the RPC node for transaction confirmation
-     * after the transaction has been sent.
+     * Price per compute unit in micro-lamports.
+     * If null, Jupiter determines the compute unit price automatically.
      */
-    int statusCheckCount;
+    Integer computeUnitPrice;
 
     /**
-     * Total time budget in milliseconds for waiting on transaction confirmation.
-     * The polling interval is derived as {@code statusCheckTimeoutMs / statusCheckCount}.
-     * For example, 10 checks over 60 000 ms results in a poll every 6 seconds.
+     * If true, only direct token pair routes are used (no multi-hop routing).
+     * Reduces route complexity but may result in worse prices.
      */
-    int statusCheckTimeoutMs;
+    @Builder.Default
+    boolean onlyDirectRoutes = false;
 
     /**
-     * Maximum accepted slippage for the swap in basis points (1 bps = 0.01%).
-     * For example, 50 means a maximum slippage of 0.5%.
-     * If the price moves beyond this threshold, Jupiter will reject the quote.
+     * Maximum number of accounts allowed in the swap route (1–64, default 64).
+     * Lower values free up space for custom instructions.
      */
-    int slippageBps;
+    Integer maxAccounts;
+
+    /**
+     * List of DEX names to exclude from routing (e.g. "Raydium", "Orca").
+     */
+    List<String> excludeDexes;
+
+    /**
+     * List of routers to exclude. Possible values: "Metis", "JupiterZ", "Dflow", "OKX".
+     * Note: excluding routers may restrict liquidity and result in worse prices.
+     */
+    List<String> excludeRouters;
 
     public static JupiterSwapConfig defaultConfig() {
         return JupiterSwapConfig.builder()
-                .sendRetryCount(3)
-                .sendRetryTimeoutMs(30_000)
-                .statusCheckCount(10)
-                .statusCheckTimeoutMs(60_000)
                 .slippageBps(50)
                 .build();
     }
