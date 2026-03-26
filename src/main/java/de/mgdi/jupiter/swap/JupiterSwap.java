@@ -7,6 +7,7 @@ import de.mgdi.jupiter.swap.model.JupiterExecuteRequest;
 import de.mgdi.jupiter.swap.model.JupiterExecuteResponse;
 import de.mgdi.jupiter.swap.model.JupiterOrderRequest;
 import de.mgdi.jupiter.swap.model.JupiterOrderResponse;
+import de.mgdi.jupiter.swap.model.SwapResult;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.p2p.solanaj.core.Account;
@@ -47,16 +48,17 @@ public class JupiterSwap {
     }
 
     /**
-     * Executes a swap and returns whether it was confirmed successfully.
+     * Executes a swap and returns the result including confirmation status and transaction signature.
      * Jupiter v2 handles transaction landing in the execute call — the result is final.
      *
      * @param inputMint  mint address of the token to sell
      * @param outputMint mint address of the token to buy
      * @param amount     amount in smallest unit (e.g. lamports for SOL, micro-USDT for USDT)
-     * @return true if the swap was confirmed successfully, false if it failed
+     * @return {@link SwapResult} with success flag and transaction signature
      */
-    public boolean swapAndAwait(final String inputMint, final String outputMint, final long amount) throws Exception {
-        return "Success".equals(executeSwap(inputMint, outputMint, amount).getStatus());
+    public SwapResult swapAndAwait(final String inputMint, final String outputMint, final long amount) throws Exception {
+        final JupiterExecuteResponse response = executeSwap(inputMint, outputMint, amount);
+        return new SwapResult("Success".equals(response.getStatus()), response.getSignature());
     }
 
     private JupiterExecuteResponse executeSwap(final String inputMint, final String outputMint, final long amount) throws Exception {

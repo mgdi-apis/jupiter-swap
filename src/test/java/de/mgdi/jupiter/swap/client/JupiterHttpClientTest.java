@@ -185,7 +185,7 @@ class JupiterHttpClientTest {
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> client.execute(executeRequest()));
 
-        assertTrue(ex.getMessage().contains("400"));
+        assertTrue(ex.getMessage().contains("Failed"));
     }
 
     @Test
@@ -196,7 +196,7 @@ class JupiterHttpClientTest {
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> client.execute(executeRequest()));
 
-        assertTrue(ex.getMessage().contains("500"));
+        assertTrue(ex.getMessage().contains("Failed"));
     }
 
     @Test

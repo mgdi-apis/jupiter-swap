@@ -37,6 +37,22 @@ SLF4J is used for logging (`slf4j-api` is a transitive dependency). Add a loggin
 
 ---
 
+## Security warning — private key handling
+
+> **This library signs transactions locally using your private key. The key never leaves your machine and is never sent to Jupiter or any external service.**
+>
+> However, you are fully responsible for how you store and pass the private key:
+>
+> - **Never hardcode a private key in source code.** Anyone with access to your repository will have access to your funds.
+> - **Never commit a `.env` or `application.properties` file containing a real private key.**
+> - Load the key at runtime from a secret manager, environment variable, or a vault — never from a file checked into version control.
+> - Use a dedicated wallet with only the funds needed for the swap. Do not use a wallet that holds significant assets.
+> - If you believe a private key has been exposed, move your funds immediately to a new wallet.
+>
+> Losing control of your private key means losing all assets associated with that address — this cannot be undone.
+
+---
+
 ## How it works
 
 1. **Order** — calls `GET /swap/v2/order` with the token pair, amount, taker wallet address, and optional config parameters; Jupiter returns an unsigned versioned transaction and a `requestId`
@@ -67,10 +83,12 @@ JupiterSwap jupiterSwap = JupiterSwap.builder()
 String signature = jupiterSwap.swap(SOL_MINT, USDC_MINT, 1_000_000_000L);
 ```
 
-#### Check if the swap succeeded
+#### Check if the swap succeeded — including transaction hash
 
 ```java
-boolean confirmed = jupiterSwap.swapAndAwait(SOL_MINT, USDC_MINT, 1_000_000_000L);
+SwapResult result = jupiterSwap.swapAndAwait(SOL_MINT, USDC_MINT, 1_000_000_000L);
+result.isSuccess();    // true if status == "Success"
+result.getSignature(); // transaction hash, e.g. "5KtP9x..."
 ```
 
 #### Custom swap configuration
@@ -169,7 +187,7 @@ public class TradingService {
         this.jupiterSwap = jupiterSwap;
     }
 
-    public boolean executeSolToUsdc(long lamports) throws Exception {
+    public SwapResult executeSolToUsdc(long lamports) throws Exception {
         return jupiterSwap.swapAndAwait(SOL_MINT, USDC_MINT, lamports);
     }
 }
@@ -234,7 +252,7 @@ public class TradingService {
     @Inject
     JupiterSwap jupiterSwap;
 
-    public boolean executeSolToUsdc(long lamports) throws Exception {
+    public SwapResult executeSolToUsdc(long lamports) throws Exception {
         return jupiterSwap.swapAndAwait(SOL_MINT, USDC_MINT, lamports);
     }
 }
