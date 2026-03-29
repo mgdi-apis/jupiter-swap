@@ -72,7 +72,9 @@ public class JupiterSwap {
         );
 
         final byte[] tx = BaseEncoding.base64().decode(orderResponse.getTransaction());
-        final byte[] messageBytes = Arrays.copyOfRange(tx, 65, tx.length);
+        final int numSignatures = tx[0] & 0xFF;
+        final int messageOffset = 1 + numSignatures * 64;
+        final byte[] messageBytes = Arrays.copyOfRange(tx, messageOffset, tx.length);
         final byte[] signature = new TweetNaclFast.Signature(new byte[0], account.getSecretKey()).detached(messageBytes);
         ByteBuffer.wrap(tx).put(1, signature, 0, 64);
 
