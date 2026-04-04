@@ -57,9 +57,10 @@ SLF4J is used for logging (`slf4j-api` is a transitive dependency). Add a loggin
 
 1. **Order** — calls `GET /swap/v2/order` with the token pair, amount, taker wallet address, and optional config parameters; Jupiter returns an unsigned versioned transaction and a `requestId`
 2. **Sign** — the transaction is signed locally with the wallet's private key
-3. **Execute** — calls `POST /swap/v2/execute` with the signed transaction and `requestId`; Jupiter routes, lands the transaction, and returns the **final status and signature directly**
+3. **Execute** — calls `POST /swap/v2/execute` with the signed transaction and `requestId`; Jupiter routes and lands the transaction, returning the status and signature
+4. **Await finalized** *(only `swapAndAwait`)* — polls the Solana RPC via `getSignatureStatuses` until the transaction reaches `finalized` confirmation status, or fails after the configured timeout
 
-No RPC client, no polling — Jupiter v2 blocks until the transaction is confirmed and returns the result.
+`swap()` returns the signature immediately after step 3. `swapAndAwait()` additionally waits for on-chain finalization (step 4) before returning.
 
 ---
 
@@ -67,7 +68,9 @@ No RPC client, no polling — Jupiter v2 blocks until the transaction is confirm
 
 ### Plain Java
 
-#### Fire and forget — returns transaction signature
+#### `swap()` — submits the transaction and returns the signature
+
+Executes the swap and returns the transaction signature once Jupiter confirms it was landed. Does **not** wait for on-chain finalization.
 
 ```java
 JupiterSwap jupiterSwap = JupiterSwap.builder()
@@ -83,11 +86,13 @@ JupiterSwap jupiterSwap = JupiterSwap.builder()
 String signature = jupiterSwap.swap(SOL_MINT, USDC_MINT, 1_000_000_000L);
 ```
 
-#### Check if the swap succeeded — including transaction hash
+#### `swapAndAwait()` — submits and waits for finalized confirmation
+
+Executes the swap and additionally polls the Solana RPC until the transaction reaches `finalized` status. Use this when you need a guarantee that the transaction is irreversibly confirmed on-chain before continuing.
 
 ```java
 SwapResult result = jupiterSwap.swapAndAwait(SOL_MINT, USDC_MINT, 1_000_000_000L);
-result.isSuccess();    // true if status == "Success"
+result.isSuccess();    // true if Jupiter status == "Success"
 result.getSignature(); // transaction hash, e.g. "5KtP9x..."
 ```
 
@@ -131,8 +136,13 @@ Use `JupiterSwapConfig.defaultConfig()` for a sensible starting point (`slippage
 | `maxAccounts` | `Integer` | `null` | Maximum number of accounts in the swap route (range: 1–64, Jupiter default: 64). Lower values free up space for custom instructions in the same transaction. |
 | `excludeDexes` | `List<String>` | `null` | List of DEX names to exclude from routing, e.g. `["Raydium", "Orca"]`. |
 | `excludeRouters` | `List<String>` | `null` | List of Jupiter routers to exclude. Possible values: `"Metis"`, `"JupiterZ"`, `"Dflow"`, `"OKX"`. Excluding routers reduces liquidity competition and may result in worse prices. |
+| `solanaRpcUrl` | `String` | `null` | Solana RPC endpoint used by `swapAndAwait()` to poll transaction status. Falls back to `Cluster.MAINNET` if `null`. |
+| `solanaRetryDurationSeconds` | `int` | `60` | Maximum time in seconds that `swapAndAwait()` waits for the transaction to reach `finalized` status before throwing. |
+| `solanaRetryDurationCount` | `int` | `6` | Number of polling intervals within `solanaRetryDurationSeconds`. Interval = `solanaRetryDurationSeconds / solanaRetryDurationCount`. |
 
 > **Note on routing restrictions:** Parameters like `excludeRouters`, `excludeDexes`, and `onlyDirectRoutes` restrict which paths Jupiter can use. This may improve predictability but reduces the chance of getting the best price.
+
+> **Note on `swapAndAwait()` timeout:** `solanaRetryDurationSeconds` and `solanaRetryDurationCount` only affect `swapAndAwait()`. `swap()` does not poll Solana at all.
 
 ---
 
