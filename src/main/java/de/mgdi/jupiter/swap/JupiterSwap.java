@@ -10,12 +10,18 @@ import de.mgdi.jupiter.swap.model.JupiterOrderResponse;
 import de.mgdi.jupiter.swap.model.SwapResult;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
+import org.awaitility.Awaitility;
 import org.p2p.solanaj.core.Account;
+import org.p2p.solanaj.rpc.Cluster;
+import org.p2p.solanaj.rpc.RpcClient;
+import org.p2p.solanaj.rpc.types.SignatureStatuses;
 import org.p2p.solanaj.utils.TweetNaclFast;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Entry point for executing token swaps via the Jupiter Aggregator v2 on Solana.
@@ -58,10 +64,31 @@ public class JupiterSwap {
      */
     public SwapResult swapAndAwait(final String inputMint, final String outputMint, final long amount) throws Exception {
         final JupiterExecuteResponse response = executeSwap(inputMint, outputMint, amount);
+        awaitTransactionFinalizedOrFail(response.getSignature());
         return new SwapResult("Success".equals(response.getStatus()), response.getSignature());
     }
 
-    private JupiterExecuteResponse executeSwap(final String inputMint, final String outputMint, final long amount) throws Exception {
+    private void awaitTransactionFinalizedOrFail(final String signature) {
+        final RpcClient rpcClient = config.getSolanaRpcUrl() != null ? new RpcClient(config.getSolanaRpcUrl())
+                : new RpcClient(Cluster.MAINNET);
+
+        Awaitility.await()
+                .atMost(config.getSolanaRetryDurationSeconds(), TimeUnit.SECONDS)
+                .pollInterval(config.getSolanaRetryDurationSeconds() / config.getSolanaRetryDurationCount(), TimeUnit.SECONDS)
+                .ignoreExceptions()
+                .until(() -> {
+                    final SignatureStatuses statuses = rpcClient.getApi()
+                            .getSignatureStatuses(List.of(signature), true);
+                    final List<SignatureStatuses.Value> values = statuses.getValue();
+                    log.info("Swap transaction signature={},  status={}", signature, !values.isEmpty() && values.get(0) != null ? values.get(0) : "unknown");
+                    return values != null
+                            && !values.isEmpty()
+                            && values.get(0) != null
+                            && "finalized".equals(values.get(0).getConfirmationStatus());
+                });
+    }
+
+    private JupiterExecuteResponse executeSwap(final String inputMint, final String outputMint, final long amount) {
         final JupiterOrderResponse orderResponse = jupiterClient.order(
                 JupiterOrderRequest.builder()
                         .inputMint(inputMint)

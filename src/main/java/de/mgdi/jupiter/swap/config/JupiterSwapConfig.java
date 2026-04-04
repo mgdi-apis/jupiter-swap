@@ -60,9 +60,26 @@ public class JupiterSwapConfig {
      */
     List<String> excludeRouters;
 
+    /**
+     * Url of solana RPC to pull transaction status after swap
+     */
+    String solanaRpcUrl;
+
+    /**
+     * Seconds to wait until transaction is finalized
+     */
+    int solanaRetryDurationSeconds;
+
+    /**
+     * How many times transaction status should be pulled from solana before fail
+     */
+    int solanaRetryDurationCount;
+
     public static JupiterSwapConfig defaultConfig() {
         return JupiterSwapConfig.builder()
                 .slippageBps(50)
+                .solanaRetryDurationSeconds(60)
+                .solanaRetryDurationCount(6)
                 .build();
     }
 }
