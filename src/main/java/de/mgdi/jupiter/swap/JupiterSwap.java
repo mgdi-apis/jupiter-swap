@@ -99,11 +99,14 @@ public class JupiterSwap {
         );
 
         final byte[] tx = BaseEncoding.base64().decode(orderResponse.getTransaction());
-        final int numSignatures = tx[0] & 0xFF;
-        final int messageOffset = 1 + numSignatures * 64;
+        final boolean isVersioned = (tx[0] & 0x80) != 0;
+        final int sigCountOffset = isVersioned ? 1 : 0;
+        final int numSignatures = tx[sigCountOffset] & 0xFF;
+        final int firstSigOffset = sigCountOffset + 1;
+        final int messageOffset = firstSigOffset + numSignatures * 64;
         final byte[] messageBytes = Arrays.copyOfRange(tx, messageOffset, tx.length);
         final byte[] signature = new TweetNaclFast.Signature(new byte[0], account.getSecretKey()).detached(messageBytes);
-        ByteBuffer.wrap(tx).put(1, signature, 0, 64);
+        ByteBuffer.wrap(tx).put(firstSigOffset, signature, 0, 64);
 
         final JupiterExecuteResponse executeResponse = jupiterClient.execute(
                 JupiterExecuteRequest.builder()
